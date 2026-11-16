@@ -1,0 +1,80 @@
+name: baba_farid_mobiles
+description: "Baba Farid Mobiles — offline-first billing & inventory system for a mobile-phone shop in Pakpattan, Pakistan. PKR, English + Urdu, cyberpunk theme."
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+  flutter: ">=3.24.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Internationalisation / formatting
+  intl: ^0.20.2
+
+  # State management & navigation
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.6.2
+
+  # Local database (offline-first)
+  drift: ^2.20.0
+  drift_sqflite: ^2.0.0
+  sqlite3_flutter_libs: ^0.5.24
+
+  # Networking & storage
+  dio: ^5.7.0
+  shared_preferences: ^2.3.0
+  flutter_secure_storage: ^9.2.2
+  path_provider: ^2.1.4
+
+  # Device capabilities
+  local_auth: ^2.3.0
+  mobile_scanner: ^6.0.3
+  qr_flutter: ^4.1.0
+
+  # Printing / PDF / sharing
+  pdf: ^3.11.1
+  printing: ^5.13.4
+  esc_pos_utils_plus: ^2.0.0
+  share_plus: ^10.0.2
+  url_launcher: ^6.3.1
+
+  # Security & codes
+  otp: ^3.2.0
+  crypto: ^3.0.6
+  encrypt: ^5.0.3
+
+  # Charts, files, import/export
+  fl_chart: ^0.69.0
+  file_picker: ^8.1.2
+  csv: ^6.0.0
+  excel: ^4.0.6
+
+  # Optional looping video background for the holographic HUD (M6-HUD);
+  # used by the HUD widgets built by a separate agent.
+  video_player: ^2.9.0
+
+  path: any
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  drift_dev: ^2.20.0
+  build_runner: ^2.4.13
+
+flutter:
+  uses-material-design: true
+
+  # NOTE: JetBrains Mono / Inter / Noto Nastaliq Urdu are referenced by
+  # font-family name in lib/core/theme/cyber_text_styles.dart and fall back
+  # to the system monospace/sans fonts when not bundled on the device
+  # (DECISIONS.md #27). No font files are bundled yet; add real .ttf
+  # assets under assets/fonts/ and declare them here before shipping
+  # if an exact on-device look is required.
+  assets:
+    - assets/logo.png
+    - assets/lang/

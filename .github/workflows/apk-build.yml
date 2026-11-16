@@ -1,0 +1,55 @@
+# Baba Farid Mobiles — Android APK release build (GitHub Actions)
+# Rebuilds the release APK pointed at the DEPLOYED backend.
+#
+# Trigger: manually (Actions tab -> "Build Android APK" -> Run workflow).
+# Enter the deployed backend base URL when prompted, e.g.
+#   https://baba-farid-mobiles-backend.onrender.com/api/v1
+# (the public URL of the Render web service, with /api/v1 on the end).
+#
+# Output: a downloadable artifact named "baba-farid-mobiles-apk"
+# containing app-release.apk. Download it from the workflow run page
+# (Actions -> the run -> Artifacts), send it to the phone, tap to install.
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Deployed backend base URL (with /api/v1), e.g. https://baba-farid-mobiles-backend.onrender.com/api/v1'
+        required: true
+        type: string
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        working-directory: mobile_app
+        run: flutter pub get
+
+      - name: Build release APK (deployed backend URL)
+        working-directory: mobile_app
+        run: flutter build apk --release --dart-define=API_BASE_URL=${{ inputs.api_base_url }}
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: baba-farid-mobiles-apk
+          path: mobile_app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error

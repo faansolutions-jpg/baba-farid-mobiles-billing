@@ -1,0 +1,52 @@
+# Baba Farid Mobiles — Windows release build (GitHub Actions)
+# Runs on a Windows runner because `flutter build windows` only works on
+# Windows hosts (it cannot run on Linux/macOS runners or this Linux VM).
+#
+# Trigger: manually (Actions tab -> "Build Windows release" -> Run workflow),
+# or automatically on every push to main that touches mobile_app/.
+#
+# Output: a downloadable artifact named "baba-farid-mobiles-windows"
+# containing the Release folder with baba_farid_mobiles.exe. Download it
+# from the workflow run page (Actions -> the run -> Artifacts), unzip on a
+# Windows PC, and run baba_farid_mobiles.exe.
+name: Build Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile_app/**'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: mobile_app
+        run: flutter pub get
+
+      - name: Analyse (fail on errors)
+        working-directory: mobile_app
+        run: flutter analyze
+
+      - name: Build Windows release
+        working-directory: mobile_app
+        run: flutter build windows --release
+
+      - name: Upload Windows release
+        uses: actions/upload-artifact@v4
+        with:
+          name: baba-farid-mobiles-windows
+          path: mobile_app/build/windows/x64/runner/Release/
+          if-no-files-found: error

@@ -1,0 +1,13 @@
+// Typecheck config: checks src + tests together (vitest runs the tests,
+// this file makes `npm run lint` typecheck them too). rootDir is the
+// project root here so test files outside src/ are allowed; noEmit means
+// this config never produces output.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
