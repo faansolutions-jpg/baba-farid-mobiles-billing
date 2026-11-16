@@ -20,7 +20,11 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # windows-2022 ships Visual Studio 2019 (needed by Flutter's CMake
+    # "Visual Studio 16 2019" generator). windows-latest is now the
+    # windows-2025 image, which has VS 2026 only, so the build fails with
+    # "could not find any instance of Visual Studio".
+    runs-on: windows-2022
     steps:
       - name: Check out code
         uses: actions/checkout@v4
