@@ -46,7 +46,10 @@ jobs:
 
       - name: Build Windows release
         working-directory: mobile_app
-        run: flutter build windows --release
+        # Bake in the live Render backend URL. Without this dart-define the
+        # app defaults to http://localhost:3000/api/v1 and login fails with
+        # "Cannot reach the server" on any PC that is not running the backend.
+        run: flutter build windows --release --dart-define=API_BASE_URL=https://baba-farid-mobiles-backend.onrender.com/api/v1
 
       - name: Upload Windows release
         uses: actions/upload-artifact@v4
