@@ -19,8 +19,7 @@ services:
     plan: free
     rootDir: backend
     buildCommand: npm ci --include=dev && npm run build && apt-get update -qq && apt-get install -y -qq postgresql-client > /dev/null 2>&1 || true
-    startCommand: node dist/server.js
-    preDeployCommand: bash ../scripts/render-migrate.sh
+    startCommand: bash ../scripts/render-migrate.sh && node dist/server.js
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV
