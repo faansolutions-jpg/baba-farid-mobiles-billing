@@ -2,6 +2,8 @@ library;
 
 /// Dashboard (route `/dashboard`): HUD hero fed with real shop data,
 /// count-up stat cards, quick actions, recent sales and low-stock alerts.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -61,14 +63,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   String? _error;
   bool _loading = true;
 
+  /// Periodic background sync while the dashboard is open, so stock /
+  /// catalog / customers added on another device (or the web software)
+  /// show up without a manual refresh. Cancelled in [dispose].
+  Timer? _syncTimer;
+
   @override
   void initState() {
     super.initState();
     _load();
+    _syncTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+      _syncInBackground();
+    });
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Best-effort background sync. Never throws and never touches the
+  /// loading state: a failed sync just means this refresh uses the
+  /// local data it already has.
+  Future<void> _syncInBackground() async {
+    try {
+      await ref.read(syncEngineProvider).sync();
+    } catch (_) {
+      // Offline or server error: ignore; the next refresh retries.
+    }
   }
 
   Future<void> _load() async {
     if (mounted) setState(() => _loading = true);
+    // Sync first (push local sales, pull server products/variants/
+    // customers/catalog) so the data read below already includes what
+    // the server has. A failed sync must not block the dashboard:
+    // it just falls back to the local data.
+    await _syncInBackground();
     try {
       final reports = ref.read(reportRepositoryProvider);
       final products = ref.read(productRepositoryProvider);

@@ -143,6 +143,10 @@ export interface SyncPullResult {
   suppliers: Row[];
   sales: Row[];
   settings: Row;
+  /** Accessories Master Catalog rows (catalog_items) that changed
+   *  since `since`. The client applies them via its local catalog
+   *  repository (insert new SKUs, refresh estimated prices only). */
+  catalog: Row[];
 }
 
 /** Everything that changed since `since` (ISO timestamp). The client applies
@@ -172,6 +176,16 @@ export async function pullChanges(since: string | undefined): Promise<SyncPullRe
       WHERE s.updated_at > $1 ORDER BY s.updated_at`,
     params,
   );
+  // Accessories Master Catalog (catalog_items). Stock quantities live
+  // in catalog_stock and are managed locally, so only the item fields
+  // are pulled; the client never overwrites local stock from these.
+  const catalog = await query<Row>(
+    `SELECT sku, category, brand, name_en, name_ur, model_compatibility,
+            colors, variants, purchase_price_est, sale_price_est, min_price,
+            unit, barcode, is_custom, estimated, created_at, updated_at
+       FROM catalog_items WHERE updated_at > $1 ORDER BY updated_at`,
+    params,
+  );
   const settingsRes = await query<{ key: string; value: unknown }>(
     'SELECT key, value FROM settings ORDER BY key',
   );
@@ -185,6 +199,7 @@ export async function pullChanges(since: string | undefined): Promise<SyncPullRe
     suppliers: suppliers.rows,
     sales: sales.rows,
     settings,
+    catalog: catalog.rows,
   };
 }
 

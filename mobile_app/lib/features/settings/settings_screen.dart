@@ -52,6 +52,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _hudBatterySaver = true;
   bool _videoBackground = false;
 
+  /// Manual sync state (the "Sync now" button below).
+  bool _syncing = false;
+  String? _syncMessage;
+
   @override
   void initState() {
     super.initState();
@@ -106,6 +110,40 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _error = e.toString();
         _loading = false;
       });
+    }
+  }
+
+  /// Manual "Sync now": pushes local sales/changes to the server and
+  /// pulls the server's products, variants, customers and catalog into
+  /// the local database. Shows a short result message; a failed sync
+  /// never loses local data.
+  Future<void> _syncNow() async {
+    if (_syncing) return;
+    setState(() {
+      _syncing = true;
+      _syncMessage = null;
+    });
+    try {
+      final result = await ref.read(syncEngineProvider).sync();
+      if (!mounted) return;
+      setState(() {
+        _syncing = false;
+        _syncMessage =
+            '${AppStrings.tr('syncDone', language: ref.read(languageProvider))} '
+            'Pushed ${result.pushed}, pulled ${result.pulled}.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _syncing = false;
+        _syncMessage = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppStrings.tr('syncFailed',
+              language: ref.read(languageProvider))),
+        ),
+      );
     }
   }
 
@@ -460,6 +498,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       },
                       c: c,
                     ),
+                    const SizedBox(height: 24),
+                    _section(t('sync'), c),
+                    CyberButton(
+                      label: t('syncNow'),
+                      icon: Icons.sync,
+                      isLoading: _syncing,
+                      onPressed: _syncing ? null : _syncNow,
+                    ),
+                    if (_syncMessage != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _syncMessage!,
+                        style: CyberTextStyles.bodySecondary(c),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     CyberButton(
                       label: t('backupRestore'),

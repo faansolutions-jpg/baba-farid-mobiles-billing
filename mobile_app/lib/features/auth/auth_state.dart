@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/providers/app_providers.dart';
 import '../../core/services/auth_service.dart';
+import '../../data/sync/sync_engine.dart';
 import 'auth_models.dart';
 
 /// Auth state held by [AuthStateNotifier].
@@ -34,12 +36,20 @@ class AuthState {
 /// Riverpod StateNotifier for auth. Delegates every operation to the
 /// injected [AuthService]; this class holds no credentials and performs
 /// no network calls itself.
+///
+/// [syncEngine] is optional (tests may omit it). When present, a
+/// successful login triggers a background sync so the app's local
+/// database is populated from the server (products, variants,
+/// customers, catalog) before the user starts working — otherwise
+/// the local SQLite stays empty and POS finds nothing to sell.
 class AuthStateNotifier extends StateNotifier<AuthState> {
-  AuthStateNotifier(this._authService) : super(const AuthState()) {
+  AuthStateNotifier(this._authService, [this._syncEngine])
+      : super(const AuthState()) {
     _restoreSession();
   }
 
   final AuthService _authService;
+  final SyncEngine? _syncEngine;
 
   Future<void> _restoreSession() async {
     state = state.copyWith(isLoading: true);
@@ -61,11 +71,25 @@ class AuthStateNotifier extends StateNotifier<AuthState> {
     try {
       final user = await _authService.login(username, password);
       state = AuthState(user: user, isLoading: false);
+      // Pull the server's master data (products, variants, customers,
+      // catalog) into the local database now, so POS / stock / catalog
+      // are populated. Fire-and-forget: a failed or slow sync must
+      // never block or fail the login; the dashboard also syncs on
+      // load and pull-to-refresh, and Settings has a Sync now button.
+      _syncAfterLogin();
       return true;
     } catch (e) {
       state = AuthState(isLoading: false, error: _friendlyError(e));
       return false;
     }
+  }
+
+  /// Best-effort background sync after a successful login. Swallows
+  /// every error: sync is never allowed to fail a login.
+  void _syncAfterLogin() {
+    final engine = _syncEngine;
+    if (engine == null) return;
+    engine.sync().then((_) {}).catchError((_) {});
   }
 
   /// Logs out: clears the server session/token and the local state.
@@ -140,5 +164,8 @@ final authServiceProvider = Provider<AuthService>((ref) {
 
 final authStateProvider =
     StateNotifierProvider<AuthStateNotifier, AuthState>(
-  (ref) => AuthStateNotifier(ref.watch(authServiceProvider)),
+  (ref) => AuthStateNotifier(
+    ref.watch(authServiceProvider),
+    ref.watch(syncEngineProvider),
+  ),
 );

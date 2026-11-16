@@ -19,9 +19,11 @@
 ///   (see [push]) and is documented in `docs/sync.md` §3.1.
 /// * PULL — `GET /api/v1/sync/pull?since=...` returns
 ///   `{ serverTime, products[], variants[], customers[], suppliers[],
-///   sales[], settings }` (per-table arrays, NOT a `changes` list).
-///   `variants` maps to local table `product_variants`; `settings` is a
-///   flat `{ key: value }` object.
+///   sales[], settings, catalog[] }` (per-table arrays, NOT a `changes`
+///   list). `variants` maps to local table `product_variants`;
+///   `settings` is a flat `{ key: value }` object; `catalog` is the
+///   Accessories Master Catalog rows, applied to the separate local
+///   catalog database via [CatalogRepository.applyCatalogUpdate].
 /// * [push] sends queued rows in order; [pull] applies server changes:
 ///   **server-wins for master data** (products, variants, categories,
 ///   brands, customers, suppliers, settings), **append-only for money
@@ -39,6 +41,8 @@ import 'package:drift/drift.dart';
 
 import '../api/api_client.dart';
 import '../database/app_database.dart' as db;
+import '../../features/catalog/catalog_models.dart';
+import '../../features/catalog/catalog_repository.dart';
 
 /// Result of one [SyncEngine.sync] run.
 class SyncResult {
@@ -110,10 +114,16 @@ class SyncEngine {
   final ApiClient apiClient;
   final String deviceId;
 
+  /// The catalog repository (a separate Drift database). Optional so
+  /// unit tests can construct a SyncEngine without a catalog DB; when
+  /// present, [pull] also applies the server's catalog rows to it.
+  final CatalogRepository? catalogRepository;
+
   SyncEngine({
     required this.database,
     required this.apiClient,
     required this.deviceId,
+    this.catalogRepository,
   });
 
   /// Queues a local write for the next push. Used by code that writes
@@ -538,14 +548,16 @@ class SyncEngine {
   ///
   /// The server returns per-table arrays, NOT a `changes` list:
   /// `{ serverTime, products[], variants[], customers[], suppliers[],
-  /// sales[], settings }`. `variants` maps to the local
+  /// sales[], settings, catalog[] }`. `variants` maps to the local
   /// `product_variants` table; `settings` is a flat `{ key: value }`
   /// object (each value is JSON-encoded into the local `settings`
-  /// table, whose `value` column holds JSON text). Master data is
-  /// applied server-wins (INSERT OR REPLACE); sales are append-only
-  /// (INSERT OR IGNORE — a pulled sale never overwrites a local one).
-  /// The IMEI safety rule in [_applyChange] still applies: a
-  /// locally-sold IMEI is never reverted to `available` by a pull.
+  /// table, whose `value` column holds JSON text). `catalog` is the
+  /// Accessories Master Catalog, applied to the separate local catalog
+  /// database. Master data is applied server-wins (INSERT OR REPLACE);
+  /// sales are append-only (INSERT OR IGNORE — a pulled sale never
+  /// overwrites a local one). The IMEI safety rule in [_applyChange]
+  /// still applies: a locally-sold IMEI is never reverted to
+  /// `available` by a pull.
   Future<int> pull() async {
     final since = await _lastPullAt();
     final query = <String, dynamic>{};
@@ -555,6 +567,9 @@ class SyncEngine {
     final changes = <Map<String, dynamic>>[];
     var serverTime = DateTime.now();
     var received = 0;
+    // Catalog rows are applied directly (not via `changes`), so their
+    // count is tracked separately and folded into `applied` below.
+    var catalogApplied = 0;
     if (data is Map<String, dynamic>) {
       // Real backend shape: one array per table.
       const tableArrays = {
@@ -594,6 +609,33 @@ class SyncEngine {
           });
         }
       }
+      // Accessories Master Catalog: it lives in a separate local
+      // database (CatalogDatabase), so it is NOT routed through the
+      // main `_applyChange` loop. Apply it here via the catalog
+      // repository — new SKUs are inserted, existing non-custom items
+      // get their estimated prices refreshed, local stock and custom
+      // items are never touched.
+      final catalogRaw = data['catalog'];
+      if (catalogRaw is List && catalogRaw.isNotEmpty) {
+        final repo = catalogRepository;
+        if (repo != null) {
+          final items = catalogRaw
+              .whereType<Map>()
+              .map((e) =>
+                  CatalogItem.fromJson(e.cast<String, dynamic>()))
+              .where((item) => item.sku.isNotEmpty)
+              .toList();
+          if (items.isNotEmpty) {
+            received += items.length;
+            final st0 = data['server_time'] ?? data['serverTime'];
+            final version = st0 is String
+                ? 'sync-$st0'
+                : 'sync-${DateTime.now().toIso8601String()}';
+            await repo.applyCatalogUpdate(items, version);
+            catalogApplied += items.length;
+          }
+        }
+      }
       final st = data['server_time'] ?? data['serverTime'];
       if (st is String) {
         serverTime = DateTime.tryParse(st) ?? serverTime;
@@ -606,6 +648,7 @@ class SyncEngine {
       received = changes.length;
     }
     var applied = 0;
+    applied += catalogApplied;
     await database.transaction(() async {
       for (final change in changes) {
         final appliedOne = await _applyChange(change);
@@ -622,24 +665,40 @@ class SyncEngine {
   }
 
   /// Push then pull. This is the normal sync entry point.
+  ///
+  /// Guarded against overlapping runs: login, dashboard load and the
+  /// Settings "Sync now" button can all trigger a sync close together
+  /// (and a periodic timer may fire while one is in flight). A second
+  /// concurrent sync returns a neutral result instead of running a
+  /// second overlapping push/pull, which could double-apply changes.
+  bool _isSyncing = false;
+
   Future<SyncResult> sync() async {
-    final pushed = await push();
-    final pulled = await pull();
-    final conflictsRow = await database.customSelect(
-      'SELECT COUNT(*) AS cnt FROM sync_logs WHERE action = ? '
-      'AND created_at >= ?',
-      variables: [
-        Variable.withString('conflict'),
-        Variable.withDateTime(
-            DateTime.now().subtract(const Duration(hours: 1))),
-      ],
-    ).getSingle();
-    return SyncResult(
-      pushed: pushed,
-      pulled: pulled,
-      conflicts: conflictsRow.read<int>('cnt'),
-      lastSyncAt: DateTime.now(),
-    );
+    if (_isSyncing) {
+      return SyncResult(lastSyncAt: DateTime.now());
+    }
+    _isSyncing = true;
+    try {
+      final pushed = await push();
+      final pulled = await pull();
+      final conflictsRow = await database.customSelect(
+        'SELECT COUNT(*) AS cnt FROM sync_logs WHERE action = ? '
+        'AND created_at >= ?',
+        variables: [
+          Variable.withString('conflict'),
+          Variable.withDateTime(
+              DateTime.now().subtract(const Duration(hours: 1))),
+        ],
+      ).getSingle();
+      return SyncResult(
+        pushed: pushed,
+        pulled: pulled,
+        conflicts: conflictsRow.read<int>('cnt'),
+        lastSyncAt: DateTime.now(),
+      );
+    } finally {
+      _isSyncing = false;
+    }
   }
 
   // -- Pull application ------------------------------------------------------

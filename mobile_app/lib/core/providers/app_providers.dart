@@ -100,6 +100,7 @@ final syncEngineProvider = Provider<SyncEngine>(
     database: ref.watch(appDatabaseProvider),
     apiClient: ref.watch(apiClientProvider),
     deviceId: 'app',
+    catalogRepository: ref.watch(catalogRepositoryProvider),
   ),
 );
 

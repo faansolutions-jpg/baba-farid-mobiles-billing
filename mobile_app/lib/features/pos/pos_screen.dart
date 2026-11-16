@@ -410,6 +410,101 @@ class _PosScreenState extends ConsumerState<PosScreen> {
     });
   }
 
+  /// Adds a repair/service charge line to the cart (e.g. "Screen
+  /// replacement — Rs 2,500"). Asks for a description and an amount;
+  /// the line has no product/IMEI and quantity 1. Its variant is
+  /// resolved to the Repair Service variant when the bill is paid.
+  Future<void> _addServiceLine() async {
+    final lang = ref.read(languageProvider);
+    String tr(String key) => AppStrings.tr(key, language: lang);
+    final descController = TextEditingController();
+    final amountController = TextEditingController();
+    final result =
+        await showDialog<({String description, int amount})>(
+      context: context,
+      builder: (context) => CyberDialog(
+        title: tr('addServiceCharge'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(tr('cancel')),
+          ),
+          CyberButton(
+            label: tr('add'),
+            fullWidth: false,
+            onPressed: () {
+              final description = descController.text.trim();
+              final amount = int.tryParse(amountController.text.trim());
+              if (description.isEmpty || amount == null || amount <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(tr('enterValidAmount'))),
+                );
+                return;
+              }
+              Navigator.of(context)
+                  .pop((description: description, amount: amount));
+            },
+          ),
+        ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CyberTextField(
+              controller: descController,
+              label: tr('serviceDescription'),
+              autofocus: true,
+              prefixIcon: Icons.build_outlined,
+            ),
+            const SizedBox(height: 12),
+            CyberTextField(
+              controller: amountController,
+              label: tr('serviceAmount'),
+              monospace: true,
+              keyboardType: TextInputType.number,
+              prefixIcon: Icons.attach_money,
+            ),
+          ],
+        ),
+      ),
+    );
+    descController.dispose();
+    amountController.dispose();
+    if (result == null || !mounted) return;
+    setState(() {
+      _cart.add(CartLine.service(
+        name: result.description,
+        amount: result.amount,
+      ));
+    });
+  }
+
+  /// Resolves the Repair Service variant id from the local database.
+  /// Prefers a lookup by product name (robust if the backend was
+  /// re-seeded with new ids), falling back to the known ids. Returns
+  /// null when the service product is not on this device yet — the
+  /// caller tells the user to sync first.
+  Future<String?> _resolveServiceVariantId() async {
+    final repo = ref.read(productRepositoryProvider);
+    try {
+      final products = await repo.searchProducts('Repair Service');
+      for (final product in products) {
+        if (product.name.toLowerCase().contains('repair service')) {
+          final variants = await repo.listVariants(product.id);
+          if (variants.isNotEmpty) return variants.first.id;
+        }
+      }
+    } catch (_) {
+      // Fall through to the known-id check below.
+    }
+    try {
+      final variant = await repo.getVariant(repairServiceVariantId);
+      if (variant != null) return variant.id;
+    } catch (_) {
+      // Not on this device.
+    }
+    return null;
+  }
+
   // -- Cart edits -----------------------------------------------------------
 
   void _updateLine(int index, CartLine updated) {
@@ -629,6 +724,22 @@ class _PosScreenState extends ConsumerState<PosScreen> {
       _payError = null;
     });
     try {
+      // Repair/service lines need a valid variantId (the server
+      // requires it for every sale line, and local createSale requires
+      // the variant to exist in the local DB). Resolve it once here
+      // from the synced Repair Service product; if it is not on this
+      // device yet, stop and tell the user to sync first.
+      String? serviceVariantId;
+      if (_cart.any((line) => line.isService)) {
+        serviceVariantId = await _resolveServiceVariantId();
+        if (serviceVariantId == null) {
+          setState(() {
+            _paying = false;
+            _payError = tr('serviceNotSynced');
+          });
+          return;
+        }
+      }
       final now = DateTime.now();
       final sale = Sale(
         id: '',
@@ -654,7 +765,8 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                 id: '',
                 saleId: '',
                 productId: line.productId,
-                variantId: line.variantId,
+                variantId:
+                    line.isService ? serviceVariantId : line.variantId,
                 imeiItemId: line.imeiItemId,
                 nameSnapshot: line.imei1 == null
                     ? line.name
@@ -851,6 +963,18 @@ class _PosScreenState extends ConsumerState<PosScreen> {
                     onPressed: () => setState(() => _customer = null),
                   ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: SizedBox(
+              width: double.infinity,
+              child: CyberButton(
+                label: tr('addServiceCharge'),
+                icon: Icons.build_outlined,
+                variant: CyberButtonVariant.ghost,
+                onPressed: _addServiceLine,
+              ),
             ),
           ),
           Expanded(

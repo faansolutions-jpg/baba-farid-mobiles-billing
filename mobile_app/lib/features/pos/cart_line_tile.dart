@@ -59,6 +59,13 @@ class CartLineTile extends ConsumerWidget {
                         style: CyberTextStyles.imei(c, size: 13),
                       ),
                     ],
+                    if (line.isService) ...[
+                      const SizedBox(height: 4),
+                      CyberBadge(
+                        label: tr('service'),
+                        color: c.secondary,
+                      ),
+                    ],
                     if (line.isBelowMinPrice) ...[
                       const SizedBox(height: 4),
                       CyberBadge(
@@ -82,16 +89,18 @@ class CartLineTile extends ConsumerWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              // Quantity stepper. Phones (IMEI) are always quantity 1.
+              // Quantity stepper. Phones (IMEI) are always quantity 1,
+              // and so are service lines.
               SizedBox(
                 width: 48,
                 height: 48,
                 child: IconButton(
                   icon: const Icon(Icons.remove),
                   tooltip: '-1',
-                  onPressed: line.isPhone || line.quantity <= 1
-                      ? null
-                      : () => onQuantityChanged(line.quantity - 1),
+                  onPressed:
+                      line.isPhone || line.isService || line.quantity <= 1
+                          ? null
+                          : () => onQuantityChanged(line.quantity - 1),
                 ),
               ),
               SizedBox(
@@ -108,7 +117,7 @@ class CartLineTile extends ConsumerWidget {
                 child: IconButton(
                   icon: const Icon(Icons.add),
                   tooltip: '+1',
-                  onPressed: line.isPhone
+                  onPressed: line.isPhone || line.isService
                       ? null
                       : () => onQuantityChanged(line.quantity + 1),
                 ),
